@@ -69,6 +69,8 @@ public class CardsPlugin extends BasePlugin {
     @Override
     public void onDestroy() {
         if (handler != null) handler.removeCallbacksAndMessages(null);
+        // A switched-off plugin must not keep answering gestures.
+        ctx = null;
         card = null;
         queued = false;
         expanded = false;
@@ -207,7 +209,10 @@ public class CardsPlugin extends BasePlugin {
         }
     }
 
+    private boolean askedWriteSettings = false;
+
     private void buildSlidersCard() {
+        askedWriteSettings = false;
         // Brightness
         panel.addView(label("Brightness"));
         int brightness = 128;
@@ -221,6 +226,9 @@ public class CardsPlugin extends BasePlugin {
                 if (!fromUser) return;
                 resetAutoClose();
                 if (!Settings.System.canWrite(ctx)) {
+                    // Ask once per drag, not on every slider step.
+                    if (askedWriteSettings) return;
+                    askedWriteSettings = true;
                     Toast.makeText(ctx, "Allow OmniLand to modify system settings for brightness", Toast.LENGTH_SHORT).show();
                     try {
                         Intent i = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS);
