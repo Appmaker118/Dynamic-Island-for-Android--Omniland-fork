@@ -22,6 +22,7 @@ import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
+import android.media.session.MediaSession;
 import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
 import android.os.Build;
@@ -79,7 +80,8 @@ public class MediaSessionPlugin extends BasePlugin {
     private TextView remainingView;
     public String current_package_name = "";
     public boolean expanded = false;
-    public Map<String, MediaController.Callback> callbackMap = new HashMap<>();
+    /** One callback per media session (an app can have several sessions). */
+    public Map<MediaSession.Token, MediaController.Callback> callbackMap = new HashMap<>();
     private boolean seekbar_dragging = false;
     public Instant last_played;
     OverlayService ctx;
@@ -147,7 +149,9 @@ public class MediaSessionPlugin extends BasePlugin {
     public MediaController getActiveCurrent(List<MediaController> mediaControllers) {
         if (mediaControllers.size() == 0) return null;
         try {
-            Optional<MediaController> controller = mediaControllers.stream().filter(x -> x.getPlaybackState().getState() == PlaybackState.STATE_PLAYING).findFirst();
+            Optional<MediaController> controller = mediaControllers.stream()
+                    .filter(x -> x.getPlaybackState() != null && x.getPlaybackState().getState() == PlaybackState.STATE_PLAYING)
+                    .findFirst();
             return controller.orElse(null);
         } catch (Exception e) {
             return null;
@@ -179,7 +183,8 @@ public class MediaSessionPlugin extends BasePlugin {
 
         }
         if (index == -1) return;
-        visualizer.setPlayerId(index);
+        // A controller doesn't expose its audio session id; 0 is the whole output mix.
+        visualizer.setPlayerId(0);
     }
 
     private int lightenColor(int colorin) {
@@ -235,9 +240,9 @@ public class MediaSessionPlugin extends BasePlugin {
 
     private MediaSessionManager.OnActiveSessionsChangedListener listnerForActiveSessions = list -> {
         list.forEach(x -> {
-            if (callbackMap.get(x.getPackageName()) != null) return;
+            if (callbackMap.get(x.getSessionToken()) != null) return;
             MediaCallback c = new MediaCallback(x, this);
-            callbackMap.put(x.getPackageName(), c);
+            callbackMap.put(x.getSessionToken(), c);
             x.registerCallback(c);
         });
     };
@@ -259,9 +264,9 @@ public class MediaSessionPlugin extends BasePlugin {
             ComponentName listener = new ComponentName(ctx, NotiService.class);
             mediaSessionManager.addOnActiveSessionsChangedListener(listnerForActiveSessions, listener);
             mediaSessionManager.getActiveSessions(listener).forEach(x -> {
-                if (callbackMap.get(x.getPackageName()) != null) return;
+                if (callbackMap.get(x.getSessionToken()) != null) return;
                 MediaCallback c = new MediaCallback(x, this);
-                callbackMap.put(x.getPackageName(), c);
+                callbackMap.put(x.getSessionToken(), c);
                 x.registerCallback(c);
             });
         } catch (SecurityException e) {
@@ -299,7 +304,7 @@ public class MediaSessionPlugin extends BasePlugin {
         if (overlayOpen) return;
         overlayOpen = true;
         current_package_name = pkg_name;
-        animateChild(ctx.dpToInt(ctx.minHeight / 4), new CallBack());
+        animateChild(ctx.coverSize(), new CallBack());
     }
 
     private View mView;
@@ -370,6 +375,9 @@ public class MediaSessionPlugin extends BasePlugin {
             }
         });
         visualizer = mView.findViewById(R.id.visualizer);
+        // Keep the user's accent colour after a rebuild or restart.
+        visualizer.setColor(ctx.sharedPreferences.getInt("Allaccent_color",
+                ctx.getColor(R.color.md_theme_dark_inversePrimary)));
     }
 
     @Override
@@ -391,7 +399,7 @@ public class MediaSessionPlugin extends BasePlugin {
             try {
                 OverLayCallBackStart.onFinish();
                 overLayCallBackEnd.onFinish();
-                int size = ctx.dpToInt(ctx.minHeight / 4);
+                int size = ctx.coverSize();
                 for (View v : new View[]{cover, visualizer}) {
                     ViewGroup.LayoutParams lp = v.getLayoutParams();
                     lp.width = size;
@@ -613,7 +621,7 @@ public class MediaSessionPlugin extends BasePlugin {
         if (!expanded) return;
         expanded = false;
         ctx.animateOverlay(ctx.minHeight, ViewGroup.LayoutParams.WRAP_CONTENT, expanded, OverLayCallBackStart, overLayCallBackEnd, onChange, false);
-        animateChild(false, ctx.dpToInt(ctx.minHeight / 4));
+        animateChild(false, ctx.coverSize());
     }
 
     @Override

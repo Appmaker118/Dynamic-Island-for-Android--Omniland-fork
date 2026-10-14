@@ -59,7 +59,7 @@ public class MediaCallback extends MediaController.Callback {
         // Next track without a play/pause change: refresh title and cover.
         try {
             if (metadata == null || !isPlaying) return;
-            if (ctx.mCurrent != null && !ctx.mCurrent.getPackageName().equals(mCurrent.getPackageName())) return;
+            if (ctx.mCurrent != null && !isCurrent()) return;
             mediaMetadata = metadata;
             updateView();
         } catch (Exception e) {
@@ -77,7 +77,7 @@ public class MediaCallback extends MediaController.Callback {
             boolean isPlaying2 = state.getState() == PlaybackState.STATE_PLAYING;
             if (mediaMetadata != null && mediaMetadata.getString(MediaMetadata.METADATA_KEY_TITLE) != null
                     && mediaMetadata.getString(MediaMetadata.METADATA_KEY_TITLE).equals(targetMetada.getString(MediaMetadata.METADATA_KEY_TITLE)) && ctx.overlayOpen()) {
-                if (ctx.mCurrent != null && ctx.mCurrent.getPackageName().equals(mCurrent.getPackageName())) {
+                if (isCurrent()) {
                     if (!isPlaying2) ctx.onPlayerPaused(true);
                     else ctx.onPlayerResume(true);
                 }
@@ -86,7 +86,7 @@ public class MediaCallback extends MediaController.Callback {
             }
 
             isPlaying = isPlaying2;
-            if (ctx.mCurrent != null && ctx.mCurrent.getPackageName().equals(mCurrent.getPackageName())) {
+            if (isCurrent()) {
                 if (!isPlaying) ctx.onPlayerPaused(false);
                 else ctx.onPlayerResume(false);
             }
@@ -106,21 +106,28 @@ public class MediaCallback extends MediaController.Callback {
             });
         } catch (Exception e) {
             e.printStackTrace();
-            ctx.closeOverlay();
+            if (isCurrent()) ctx.closeOverlay();
         }
+    }
+
+    /** True when this player is the one shown in the island. */
+    private boolean isCurrent() {
+        // Compare sessions, not apps: one app (e.g. Chrome) can have several.
+        return ctx.mCurrent != null && mCurrent != null
+                && ctx.mCurrent.getSessionToken().equals(mCurrent.getSessionToken());
     }
 
     @Override
     public void onSessionDestroyed() {
         super.onSessionDestroyed();
+        // Another app's video or voice note ending must not blank the music island.
+        boolean wasCurrent = isCurrent();
         if (mCurrent != null) {
             mCurrent.unregisterCallback(this);
-            ctx.callbackMap.remove(mCurrent.getPackageName());
-            if (ctx.mCurrent != null && ctx.mCurrent.getPackageName().equals(mCurrent.getPackageName())) {
-                ctx.mCurrent = null;
-            }
+            ctx.callbackMap.remove(mCurrent.getSessionToken());
+            if (wasCurrent) ctx.mCurrent = null;
         }
-        ctx.closeOverlay();
+        if (wasCurrent) ctx.closeOverlay();
 
     }
 }
