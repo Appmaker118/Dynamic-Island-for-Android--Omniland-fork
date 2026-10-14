@@ -70,8 +70,11 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         init();
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        if ((Settings.Secure.getString(this.getContentResolver(), "enabled_notification_listeners") != null && !Settings.Secure.getString(this.getContentResolver(), "enabled_notification_listeners").contains(getApplicationContext().getPackageName())
-        ) || ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        // Only on a fresh start: not again when the screen is redrawn (e.g. after the
+        // Material You toggle), which re-opened the welcome screen and permission prompts.
+        boolean freshStart = savedInstanceState == null;
+        if (freshStart && ((Settings.Secure.getString(this.getContentResolver(), "enabled_notification_listeners") != null && !Settings.Secure.getString(this.getContentResolver(), "enabled_notification_listeners").contains(getApplicationContext().getPackageName())
+        ) || ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)) {
             startActivity(new Intent(this, PermissionActivity.class));
         }
         // Ask once for the runtime permissions the island uses: notifications (Android 13+)
@@ -85,7 +88,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                 ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
             ask.add(Manifest.permission.BLUETOOTH_CONNECT);
         }
-        if (!ask.isEmpty()) {
+        if (freshStart && !ask.isEmpty()) {
             ActivityCompat.requestPermissions(this, ask.toArray(new String[0]), 105);
         }
         MaterialCardView enable_btn = findViewById(R.id.enable_switch);
@@ -251,6 +254,16 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         return new SettingStruct(label, "Demo Mode", SettingStruct.TYPE_CUSTOM) {
             @Override
             public void onClick(Context c) {
+                if (!androidx.core.app.NotificationManagerCompat.from(MainActivity.this).areNotificationsEnabled()) {
+                    // Demos are real notifications; Android drops them silently otherwise.
+                    Toast.makeText(MainActivity.this, "Allow notifications for OmniLand to use the demos", Toast.LENGTH_LONG).show();
+                    try {
+                        startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
+                    } catch (Exception ignored) {
+                    }
+                    return;
+                }
                 action.run();
                 Toast.makeText(MainActivity.this, "Sent. Check the island.", Toast.LENGTH_SHORT).show();
             }
@@ -307,7 +320,11 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
             intent.setData(Uri.parse("package:" + pkg));
             startActivity(intent);
         } catch (ActivityNotFoundException e) {
-            startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+            try {
+                startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+            } catch (Exception e2) {
+                Toast.makeText(this, "Open Settings > Apps > OmniLand > Battery and choose Unrestricted", Toast.LENGTH_LONG).show();
+            }
         }
     }
 

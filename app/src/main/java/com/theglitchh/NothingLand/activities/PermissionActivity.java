@@ -96,8 +96,16 @@ public class PermissionActivity extends AppCompatActivity {
             }
         }
 
-        if (checks >= 3) {
+        // Notification access and audio are required; the image permission is optional
+        // (the background picture no longer needs it), so don't keep this screen open for it.
+        if (checks >= 2 && hasRequiredPermissions()) {
             finish();
         }
+    }
+
+    private boolean hasRequiredPermissions() {
+        String listeners = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+        return listeners != null && listeners.contains(getPackageName())
+                && ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
     }
 }

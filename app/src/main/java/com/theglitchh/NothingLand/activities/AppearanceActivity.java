@@ -59,24 +59,17 @@ public class AppearanceActivity extends AppCompatActivity {
             selectedImageUri = null; // ← add this to be explicit
             selectedImageView.setVisibility(View.GONE);
         }
-        selectImageBtn.setOnClickListener(v -> {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                if (ContextCompat.checkSelfPermission(this, "android.permission.READ_MEDIA_IMAGES") == PackageManager.PERMISSION_GRANTED) {
-                    // Permission already granted, proceed to image selection
-                    openImagePicker();
-                } else {
-                    // Request permission
-                    ActivityCompat.requestPermissions(this, new String[]{"android.permission.READ_MEDIA_IMAGES"}, IMAGE_PICK_CODE);
-                }
-            } else {
-                // For Android versions below 13, use legacy permission
-                openImagePicker();
-            }
-        });
+        // The system picker needs no permission; the picked image is copied into the app.
+        selectImageBtn.setOnClickListener(v -> openImagePicker());
         findViewById(R.id.resetbtn2).setOnClickListener(v -> {
-            if (selectedImageUri != null) {
-                getContentResolver().releasePersistableUriPermission(selectedImageUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            if (selectedImageUri != null && "content".equals(selectedImageUri.getScheme())) {
+                try {
+                    getContentResolver().releasePersistableUriPermission(selectedImageUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } catch (SecurityException ignored) {
+                    // No lasting permission was held for it.
+                }
             }
+            deleteCopiedImages(null);
             // Clear the selected image view
             selectedImageUri = null;
             selectedImageView.setVisibility(View.GONE);
@@ -114,7 +107,15 @@ public class AppearanceActivity extends AppCompatActivity {
             String value = null;
             String AllaccentColorValue = null;
             if (Objects.requireNonNull(t.getEditText()).getText() != null && Objects.requireNonNull(t2.getEditText()).getText() != null)
-                value = "#" + t.getEditText().getText().toString();AllaccentColorValue = "#" + t2.getEditText().getText().toString();
+                value = "#" + t.getEditText().getText().toString().trim();
+            AllaccentColorValue = "#" + Objects.requireNonNull(t2.getEditText()).getText().toString().trim();
+            if (!isValidColor(AllaccentColorValue)) {
+                t2.setErrorEnabled(true);
+                t2.setError("Please provide a valid hexadecimal value");
+                return;
+            }
+            t2.setError(null);
+            t2.setErrorEnabled(false);
             if (value != null) {
                 if (isValidColor(value)) {
 
@@ -129,7 +130,10 @@ public class AppearanceActivity extends AppCompatActivity {
                         int color = Color.parseColor(value);
                         int AllaccentColor = Color.parseColor(AllaccentColorValue);
                         sharedPreferences.edit().putInt("color", color).putInt("Allaccent_color", AllaccentColor).apply();
-                        Snackbar.make(this, findViewById(R.id.textField), "Successfully updated color", Snackbar.LENGTH_SHORT).show();
+                        boolean materialYou = sharedPreferences.getBoolean("wallpaper_color", false);
+                        Snackbar.make(this, findViewById(R.id.textField), materialYou
+                                ? "Saved. Material You colours are on, so the island keeps your wallpaper colour"
+                                : "Successfully updated color", Snackbar.LENGTH_LONG).show();
                         Intent intent = new Intent(getPackageName() + ".COLOR_CHANGED");
                         intent.putExtra("color", color);
                         intent.putExtra("Allaccent_color", AllaccentColor);
@@ -162,10 +166,44 @@ public class AppearanceActivity extends AppCompatActivity {
     private ImageView selectedImageView;
     private boolean isValidColor(String value) {
         // Source : https://stackoverflow.com/a/23155867/14200419
-        Pattern colorPattern = Pattern.compile("#([0-9a-f]{6}|[0-9a-f]{8})");
+        Pattern colorPattern = Pattern.compile("#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})");
         Matcher m = colorPattern.matcher(value);
         return m.matches();
     }
+    /** Copies the picked image into app storage; both OmniLand processes can read it. */
+    @Nullable
+    private Uri copyImageIntoApp(Uri source) {
+        java.io.File file = new java.io.File(getFilesDir(), "island_bg_" + System.currentTimeMillis() + ".img");
+        try (java.io.InputStream in = getContentResolver().openInputStream(source);
+             java.io.OutputStream out = new java.io.FileOutputStream(file)) {
+            if (in == null) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+                return null;
+            }
+            byte[] buf = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        } catch (Exception e) {
+            Log.w("AppearanceActivity", "Could not copy image", e);
+            //noinspection ResultOfMethodCallIgnored
+            file.delete();
+            return null;
+        }
+        deleteCopiedImages(file);
+        return Uri.fromFile(file);
+    }
+
+    /** Removes earlier copied background images (all of them when keep is null). */
+    private void deleteCopiedImages(@Nullable java.io.File keep) {
+        java.io.File[] old = getFilesDir().listFiles((dir, name) -> name.startsWith("island_bg_"));
+        if (old == null) return;
+        for (java.io.File f : old) {
+            //noinspection ResultOfMethodCallIgnored
+            if (keep == null || !f.equals(keep)) f.delete();
+        }
+    }
+
     private void openImagePicker() {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.setType("image/*"); // Filter for image files
@@ -177,14 +215,28 @@ public class AppearanceActivity extends AppCompatActivity {
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == IMAGE_PICK_CODE && resultCode == RESULT_OK && data != null && data.getData() != null) {
-            selectedImageUri = data.getData();
+            // Keep our own copy: the picker's permission ends when this screen closes or
+            // the phone restarts, and the island would lose the picture.
+            // Copy off the main thread: cloud pickers can take a while to deliver the file.
+            final Uri source = data.getData();
+            new Thread(() -> {
+                Uri copied = copyImageIntoApp(source);
+                runOnUiThread(() -> {
+                    if (isFinishing()) return;
+                    if (copied == null) {
+                        Snackbar.make(findViewById(R.id.select_image_btn), "Couldn't read that image", Snackbar.LENGTH_SHORT).show();
+                        return;
+                    }
+                    applyPickedImage(copied);
+                });
+            }).start();
+        }
+    }
+
+    private void applyPickedImage(Uri copied) {
+        {
+            selectedImageUri = copied;
             Log.d("AppearanceActivity", "Image selected: " + selectedImageUri);
-            final int takeFlags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION );
-            try {
-                getContentResolver().takePersistableUriPermission(selectedImageUri, Intent.FLAG_GRANT_READ_URI_PERMISSION); // Persist URI permission
-            } catch (SecurityException e) {
-                e.printStackTrace(); // Handle exception
-            }
 
             selectedImageView.setVisibility(View.VISIBLE);
             selectedImageView.setImageURI(selectedImageUri);
