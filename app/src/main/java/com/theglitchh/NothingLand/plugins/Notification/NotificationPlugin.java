@@ -173,7 +173,15 @@ public class NotificationPlugin extends BasePlugin {
 
     private void openOverlay() {
         overlayOpen = true;
-        animateChild(false, context.dpToInt(context.minHeight / 4));
+        mHandler.removeCallbacks(dequeueLater);
+        animateChild(false, context.coverSize());
+    }
+
+    /** Leaves the island after the closing animation, unless a new notification came in. */
+    private final Runnable dequeueLater = this::dequeueIfDone;
+
+    private void dequeueIfDone() {
+        if (meta == null && !overlayOpen) context.dequeue(this);
     }
 
     private void closeOverlay() {
@@ -181,7 +189,8 @@ public class NotificationPlugin extends BasePlugin {
         if (!overlayOpen) return;
         overlayOpen = false;
         animateChild(false, 0);
-        mHandler.postDelayed(() -> context.dequeue(this), 301);
+        mHandler.removeCallbacks(dequeueLater);
+        mHandler.postDelayed(dequeueLater, 301);
     }
 
     @Override
@@ -201,9 +210,17 @@ public class NotificationPlugin extends BasePlugin {
     }
 
     private boolean overlayOpen = false;
+    private ObjectAnimator swipeFade;
 
     private void update() {
         if (mView == null) return;
+        // Undo a swipe-away animation from the previous notification.
+        if (swipeFade != null) {
+            swipeFade.cancel();
+            swipeFade = null;
+        }
+        mView.setTranslationX(0);
+        mView.setAlpha(1f);
         if (meta == null) {
             closeOverlay();
             return;
@@ -290,8 +307,12 @@ public class NotificationPlugin extends BasePlugin {
         mView = LayoutInflater.from(context).inflate(R.layout.notification_layout, null);
 
         if (meta == null) {
-            context.dequeue(this);
-            return mView;
+            // Nothing to show any more: leave the island right after this bind finishes.
+            View empty = mView;
+            mHandler.post(() -> {
+                if (meta == null) context.dequeue(this);
+            });
+            return empty;
         }
         if (adapter == null)
             adapter = new NotificationViewPagerAdapter(notificationArrayList, context);
@@ -308,6 +329,7 @@ public class NotificationPlugin extends BasePlugin {
     @Override
     public void onBindComplete() {
         super.onBindComplete();
+        if (meta == null) return; // leaving right away (see onBind)
         openOverlay();
     }
 
@@ -317,15 +339,30 @@ public class NotificationPlugin extends BasePlugin {
         // dequeue here: the notifications are still waiting and come back afterwards.
         expanded = false;
         overlayOpen = false;
-        if (mView != null)
-            ((ViewPager) mView.findViewById(R.id.text_info)).removeOnPageChangeListener(listener);
+        releaseViews();
         mView = null;
+    }
+
+    /** Detaches the pager and tabs from the shared adapter so old views aren't kept alive. */
+    private void releaseViews() {
+        if (mView == null) return;
+        try {
+            ViewPager pager = mView.findViewById(R.id.text_info);
+            pager.removeOnPageChangeListener(listener);
+            ((TabLayout) mView.findViewById(R.id.tab_layout)).setupWithViewPager(null);
+            pager.setAdapter(null);
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
     public void onDestroy() {
         Broadcasts.unregister(context, broadcastReceiver);
         if (mHandler != null) mHandler.removeCallbacksAndMessages(null);
+        releaseViews();
+        mView = null;
+        adapter = null;
+        notificationArrayList.clear();
         meta = null;
         expanded = false;
         overlayOpen = false;
@@ -367,6 +404,7 @@ public class NotificationPlugin extends BasePlugin {
                 // You can also add a fade-out effect if needed
                 ObjectAnimator fadeOut = ObjectAnimator.ofFloat(mView, "alpha", 1f, 0f);
                 fadeOut.setDuration(300);
+                swipeFade = fadeOut;
                 fadeOut.start();
 
                 // After the animation, close the notification
@@ -471,7 +509,7 @@ public class NotificationPlugin extends BasePlugin {
         if (!expanded) return;
         expanded = false;
         context.animateOverlay(context.minHeight, ViewGroup.LayoutParams.WRAP_CONTENT, expanded, OverLayCallBackStart, overLayCallBackEnd, onChange, false);
-        animateChild(expanded, context.dpToInt(context.minHeight / 4));
+        animateChild(expanded, context.coverSize());
     }
 
     @Override
