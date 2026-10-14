@@ -144,6 +144,8 @@ public class LiveActivityPlugin extends BasePlugin {
         items.clear();
         current = null;
         queued = false;
+        expanded = false;
+        mView = null;
     }
 
     // ---------------------------------------------------------------- data
