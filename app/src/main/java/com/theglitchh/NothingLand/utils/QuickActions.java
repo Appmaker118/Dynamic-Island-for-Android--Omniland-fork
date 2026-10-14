@@ -183,7 +183,7 @@ public final class QuickActions {
         return torchMaxLevel(context);
     }
 
-    private static void watchTorch(CameraManager cm) {
+    public static void watchTorch(CameraManager cm) {
         if (torchCallbackRegistered) return;
         torchCallbackRegistered = true;
         cm.registerTorchCallback(new CameraManager.TorchCallback() {
