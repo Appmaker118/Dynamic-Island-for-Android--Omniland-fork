@@ -151,17 +151,11 @@ public class BatteryPlugin extends BasePlugin {
         if (mView != null) {
             tv.setText((int) batteryPercent + "%" + timeToFull());
             batteryImageView.updateBatteryPercent(batteryPercent);
-            SharedPreferences prefs = ctx.getSharedPreferences(ctx.getPackageName(), Context.MODE_PRIVATE);
-            if (batteryPercent > 80) {
-                batteryImageView.setStrokeColor(prefs.getInt("Allaccent_color", Color.RED));
-                tv.setTextColor(prefs.getInt("Allaccent_color", Color.RED));
-            } else if (batteryPercent < 80 && batteryPercent > 20) {
-                batteryImageView.setStrokeColor(prefs.getInt("Allaccent_color", Color.RED));
-                tv.setTextColor(prefs.getInt("Allaccent_color", Color.RED));
-            } else {
-                batteryImageView.setStrokeColor(prefs.getInt("Allaccent_color", Color.RED));
-                tv.setTextColor(prefs.getInt("Allaccent_color", Color.RED));
-            }
+            // The island's settings bundle has the latest accent colour (stored
+            // preferences in this process are only read once at start).
+            int accent = ctx.sharedPreferences.getInt("Allaccent_color", Color.RED);
+            batteryImageView.setStrokeColor(accent);
+            tv.setTextColor(accent);
         }
     }
 
@@ -174,7 +168,7 @@ public class BatteryPlugin extends BasePlugin {
     @Override
     public void onBindComplete() {
         if (mView == null) return;
-        ValueAnimator valueAnimator = ValueAnimator.ofInt(0, ctx.dpToInt(ctx.minHeight / 4));
+        ValueAnimator valueAnimator = ValueAnimator.ofInt(0, ctx.coverSize());
         valueAnimator.setDuration(300);
         valueAnimator.addUpdateListener(valueAnimator1 -> {
             ViewGroup.LayoutParams p = batteryImageView.getLayoutParams();
