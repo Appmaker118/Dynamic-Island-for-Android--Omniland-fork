@@ -89,6 +89,14 @@ public class NotiService extends NotificationListenerService {
         } catch (Exception ignored) {
         }
         if (liveType != null) {
+            // It was a normal notification before (same key): drop that copy from the island.
+            if (notifications.removeIf(x -> x.getKey().equals(sbn.getKey()))) {
+                Intent removed = Broadcasts.internal(this, ".NOTIFICATION_REMOVED");
+                removed.putExtra("id", sbn.getId());
+                removed.putExtra("key", sbn.getKey());
+                removed.putExtra("package_name", sbn.getPackageName());
+                Broadcasts.send(this, removed);
+            }
             sendLiveActivity(sbn, liveType);
             return;
         }
@@ -139,7 +147,12 @@ public class NotiService extends NotificationListenerService {
         boolean ongoing = (n.flags & Notification.FLAG_ONGOING_EVENT) != 0;
 
         if (Notification.CATEGORY_CALL.equals(n.category)) {
-            return prefs.getBoolean(LiveActivityPlugin.PREF_CALLS, true) ? LiveActivityPlugin.TYPE_CALL : null;
+            // Only real calls (ringing or ongoing). Some dialers also tag "missed call"
+            // notifications as calls; those stay normal notifications.
+            boolean realCall = ongoing || n.fullScreenIntent != null || e.containsKey(EXTRA_CALL_TYPE);
+            if (realCall) {
+                return prefs.getBoolean(LiveActivityPlugin.PREF_CALLS, true) ? LiveActivityPlugin.TYPE_CALL : null;
+            }
         }
         String lower = (text(e, Notification.EXTRA_TITLE) + " " + text(e, Notification.EXTRA_TEXT)).toLowerCase();
         boolean navCategory = "navigation".equals(n.category);

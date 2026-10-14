@@ -88,13 +88,24 @@ public class OverlayService extends AccessibilityService {
         // boolean setblurback;
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (intent.getAction().equals(Intent.ACTION_USER_PRESENT)) {
+            if (intent.getAction().equals(Intent.ACTION_SCREEN_ON) && !isKeyguardLocked()) {
+                // Woke up before the lock kicked in: no USER_PRESENT comes, so show it here.
+                screenLocked = false;
+                if (mView != null && !sharedPreferences.getBoolean("enable_on_lockscreen", false)) {
+                    mView.setVisibility(View.VISIBLE);
+                    updateBubble();
+                }
+            } else if (intent.getAction().equals(Intent.ACTION_SCREEN_ON)) {
+                // Still locked: wait for USER_PRESENT.
+            } else if (intent.getAction().equals(Intent.ACTION_USER_PRESENT)) {
+                screenLocked = false;
                 if (sharedPreferences.getBoolean("enable_on_lockscreen", false)) return;
                 if (mView != null) {
                     mView.setVisibility(View.VISIBLE);
                     updateBubble();
                 }
             } else if (intent.getAction().equals(Intent.ACTION_SCREEN_OFF)) {
+                screenLocked = true;
                 if (sharedPreferences.getBoolean("enable_on_lockscreen", false)) return;
                 if (mView != null) mView.setVisibility(View.INVISIBLE);
                 hideBubble();
@@ -129,10 +140,16 @@ public class OverlayService extends AccessibilityService {
                 }
             } else if (Objects.equals(intent.getAction(), getPackageName() + ".COLOR_CHANGED")) {
                 String uriString = intent.getStringExtra("background_image_uri");
+                if (intent.hasExtra("Allaccent_color")) {
+                    sharedPreferences.putInt("Allaccent_color", intent.getIntExtra("Allaccent_color", Color.RED));
+                }
                 if (intent.hasExtra("color")) {
-                    color = intent.getIntExtra("color", color);
                     // Keep the settings bundle in step, otherwise the colour reverts on the next rebuild.
-                    sharedPreferences.putInt("color", color);
+                    sharedPreferences.putInt("color", intent.getIntExtra("color", color));
+                    // With Material You on, the island keeps its wallpaper colour.
+                    if (!sharedPreferences.getBoolean("wallpaper_color", false)) {
+                        color = intent.getIntExtra("color", color);
+                    }
                 }
                 if (uriString != null) {
                     sharedPreferences.putString("background_image_uri", uriString);
@@ -273,6 +290,7 @@ public class OverlayService extends AccessibilityService {
         filter.addAction(getPackageName() + ".OVERLAY_LAYOUT_CHANGE");
         filter.addAction(Intent.ACTION_USER_PRESENT);
         filter.addAction(Intent.ACTION_SCREEN_OFF);
+        filter.addAction(Intent.ACTION_SCREEN_ON);
         filter.addAction(getPackageName() + ".COLOR_CHANGED");
         filter.addAction(Intent.ACTION_WALLPAPER_CHANGED);
         filter.addAction(getPackageName() + Broadcasts.LISTENER_CONNECTED);
@@ -291,6 +309,13 @@ public class OverlayService extends AccessibilityService {
             }
         });
         mWindowManager = (WindowManager) this.getSystemService(WINDOW_SERVICE);
+        // Know the real flashlight state from the start (also when it was turned on
+        // from Quick Settings), so the flashlight gesture and slider are right.
+        try {
+            QuickActions.watchTorch((android.hardware.camera2.CameraManager) getSystemService(CAMERA_SERVICE));
+        } catch (Throwable ignored) {
+        }
+        screenLocked = isKeyguardLocked();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Rect bounds = mWindowManager.getCurrentWindowMetrics().getBounds();
             metrics.widthPixels = bounds.width();
@@ -299,6 +324,7 @@ public class OverlayService extends AccessibilityService {
             //noinspection deprecation
             mWindowManager.getDefaultDisplay().getMetrics(metrics);
         }
+        metrics.density = getResources().getDisplayMetrics().density;
         int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
         if (resourceId > 0) {
             statusBarHeight = getResources().getDimensionPixelSize(resourceId);
@@ -347,6 +373,15 @@ public class OverlayService extends AccessibilityService {
 
     private void rebuildOverlay() {
         try {
+            stopIslandAnimation();
+            if (binded_plugin != null) {
+                BasePlugin bound = binded_plugin;
+                binded_plugin = null;
+                try {
+                    bound.onUnbind();
+                } catch (Throwable ignored) {
+                }
+            }
             plugins.forEach(p -> {
                 try {
                     p.onDestroy();
@@ -435,7 +470,7 @@ public class OverlayService extends AccessibilityService {
 
         // Accent colours in the island: Nothing red, or Material You when switched on.
         ctx = sharedPreferences.getBoolean("wallpaper_color", false)
-                ? DynamicColors.wrapContextIfAvailable(getBaseContext(), com.google.android.material.R.style.ThemeOverlay_Material3_DynamicColors_DayNight)
+                ? DynamicColors.wrapContextIfAvailable(getBaseContext(), com.google.android.material.R.style.ThemeOverlay_Material3_DynamicColors_Dark)
                 : getBaseContext();
         mParams.gravity = Gravity.TOP | Gravity.CENTER;
         if (y == 0) {
@@ -473,6 +508,14 @@ public class OverlayService extends AccessibilityService {
                 }
             }
 
+            if (action == MotionEvent.ACTION_MOVE
+                    && Math.hypot(event.getX() - x1, event.getY() - y1) > ViewConfiguration.get(this).getScaledTouchSlop()) {
+                // A swipe, not a long press.
+                mHandler.removeCallbacks(mLongPressed);
+            }
+            if (action == MotionEvent.ACTION_CANCEL) {
+                mHandler.removeCallbacks(mLongPressed);
+            }
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 mHandler.postDelayed(mLongPressed, ViewConfiguration.getLongPressTimeout());
                 press_start.set(Instant.now().toEpochMilli());
@@ -556,6 +599,10 @@ public class OverlayService extends AccessibilityService {
         });
         binded_plugin = null;
         bindPlugin();
+        if (hiddenForLockScreen()) {
+            mView.setVisibility(View.INVISIBLE);
+            hideBubble();
+        }
         // Calls, timers, navigation etc. that were already running before this (re)build.
         try {
             Broadcasts.send(this, Broadcasts.internal(this, Broadcasts.RESYNC));
@@ -597,9 +644,18 @@ public class OverlayService extends AccessibilityService {
     public void dequeue(BasePlugin plugin) {
         if (!queued.contains(plugin.getID())) return;
         else queued.remove(plugin.getID());
-        if (binded_plugin != null && binded_plugin.getID().equals(plugin.getID()))
+        if (binded_plugin != null && binded_plugin.getID().equals(plugin.getID())) {
+            // Let it clean up (album colour, expanded state) before the next one shows.
+            BasePlugin bound = binded_plugin;
             binded_plugin = null;
+            try {
+                bound.onUnbind();
+            } catch (Throwable t) {
+                Log.w("OverlayService", "Unbind failed", t);
+            }
+        }
         bindPlugin();
+        refreshBubble();
     }
 
     private int last_min_size = 200;
@@ -750,6 +806,8 @@ public class OverlayService extends AccessibilityService {
             @Override
             public void onFinish() {
                 super.onFinish();
+                // Something new took the island while it was shrinking: keep its view.
+                if (binded_plugin != null || !queued.isEmpty()) return;
                 View replace = mView.findViewById(R.id.binded);
                 if (replace == null) return;
                 ((ViewGroup) mView).removeView(replace);
@@ -765,7 +823,10 @@ public class OverlayService extends AccessibilityService {
         ConstraintLayout mainLayout;
         mainLayout = mView.findViewById(R.id.main);
         if (queued.size() <= 0) {
-            if (binded_plugin != null) binded_plugin.onUnbind();
+            if (binded_plugin != null) {
+                binded_plugin.onUnbind();
+                binded_plugin = null;
+            }
             closeOverlay();
             hideBubble();
             return;
@@ -882,10 +943,68 @@ public class OverlayService extends AccessibilityService {
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        if (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        if (mView == null) return;
+        if (newConfig.orientation == Configuration.ORIENTATION_PORTRAIT && resolutionChanged()) {
+            // Screen resolution changed (e.g. FHD+ <-> WQHD+): re-measure and re-place the island.
+            x = 0;
+            y = 0;
+            minWidth = 0;
+            minHeight = 0;
+            gap = 0;
+            rebuildOverlay();
+            return;
+        }
+        if (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE || hiddenForLockScreen()) {
             mView.setVisibility(View.INVISIBLE);
         } else mView.setVisibility(View.VISIBLE);
         refreshBubble();
+    }
+
+    // ------------------------------------------------------------ lock screen and screen size
+
+    private boolean screenLocked = false;
+
+    private boolean isKeyguardLocked() {
+        try {
+            android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+            return km != null && km.isKeyguardLocked();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** True when the island must stay hidden because the phone is locked. */
+    private boolean hiddenForLockScreen() {
+        if (sharedPreferences.getBoolean("enable_on_lockscreen", false)) return false;
+        return screenLocked || isKeyguardLocked();
+    }
+
+    /** Re-reads the screen size; true when the portrait resolution or density changed. */
+    private boolean resolutionChanged() {
+        int oldW = metrics.widthPixels, oldH = metrics.heightPixels;
+        float oldDensity = metrics.density;
+        DisplayMetrics now = new DisplayMetrics();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Rect bounds = mWindowManager.getCurrentWindowMetrics().getBounds();
+            now.widthPixels = bounds.width();
+            now.heightPixels = bounds.height();
+        } else {
+            //noinspection deprecation
+            mWindowManager.getDefaultDisplay().getMetrics(now);
+        }
+        now.density = getResources().getDisplayMetrics().density;
+        if (now.widthPixels > now.heightPixels) return false; // not portrait yet
+        boolean densityChanged = oldDensity > 0 && Math.abs(now.density - oldDensity) > 0.01f;
+        boolean changed = oldW != 0 && (now.widthPixels != Math.min(oldW, oldH) || densityChanged);
+        metrics.widthPixels = now.widthPixels;
+        metrics.heightPixels = now.heightPixels;
+        metrics.density = now.density;
+        return changed;
+    }
+
+    /** Size of the cover / icon inside the small island, in pixels. */
+    public int coverSize() {
+        return Math.round(minHeight * 0.65f);
     }
 
     // ------------------------------------------------------------ gestures on the idle island
@@ -930,6 +1049,10 @@ public class OverlayService extends AccessibilityService {
 
     /** Opens a quick card (sliders or favorite apps) in the island. */
     public void showCard(String card) {
+        if (!sharedPreferences.getBoolean("CardsPlugin_enabled", true)) {
+            Toast.makeText(this, "Quick Cards is turned off in OmniLand", Toast.LENGTH_SHORT).show();
+            return;
+        }
         plugins.stream().filter(p -> p instanceof CardsPlugin).findFirst()
                 .ifPresent(p -> ((CardsPlugin) p).show(card));
     }
@@ -944,9 +1067,10 @@ public class OverlayService extends AccessibilityService {
      */
     private void animateOverlaySmooth(int h, int w, int initW, boolean expanded, CallBack callBackStart,
                                       CallBack callBackEnd, CallBack onChange) {
-        WindowManager.LayoutParams params = (WindowManager.LayoutParams) mView.getLayoutParams();
+        final View view = mView;
+        WindowManager.LayoutParams params = (WindowManager.LayoutParams) view.getLayoutParams();
         final int startH = params.height;
-        final int startW = mView.getMeasuredWidth();
+        final int startW = view.getMeasuredWidth();
         final int startX = params.x;
         final int targetX = expanded ? 0 : x;
         ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
@@ -958,30 +1082,46 @@ public class OverlayService extends AccessibilityService {
             params.height = Math.max(1, (int) (startH + (h - startH) * f));
             params.width = Math.max(1, Math.abs((int) (startW + (w - startW) * f)));
             params.x = (int) (startX + (targetX - startX) * linear);
+            if (view != mView) return; // the island was rebuilt meanwhile
             if (onChange != null) onChange.onChange(linear);
-            if (mView.getParent() != null) mWindowManager.updateViewLayout(mView, params);
+            if (view.getParent() != null) mWindowManager.updateViewLayout(view, params);
         });
         animator.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationStart(Animator animation) {
                 hideBubble();
-                mView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+                view.setLayerType(View.LAYER_TYPE_HARDWARE, null);
                 callBackStart.onFinish();
             }
 
             @Override
             public void onAnimationEnd(Animator animation) {
-                mView.setLayerType(View.LAYER_TYPE_NONE, null);
+                view.setLayerType(View.LAYER_TYPE_NONE, null);
+                if (islandAnimator == animation) islandAnimator = null;
+                if (view != mView) return; // the island was rebuilt meanwhile
                 callBackEnd.onFinish();
                 if (initW == ViewGroup.LayoutParams.WRAP_CONTENT) {
                     params.width = ViewGroup.LayoutParams.WRAP_CONTENT;
                 }
                 params.x = targetX;
-                if (mView.getParent() != null) mWindowManager.updateViewLayout(mView, params);
+                if (view.getParent() != null) mWindowManager.updateViewLayout(view, params);
                 refreshBubble();
             }
         });
+        islandAnimator = animator;
         animator.start();
+    }
+
+    private ValueAnimator islandAnimator;
+
+    /** Stops a running island animation without running its callbacks (used before a rebuild). */
+    private void stopIslandAnimation() {
+        ValueAnimator a = islandAnimator;
+        islandAnimator = null;
+        if (a == null) return;
+        a.removeAllUpdateListeners();
+        a.removeAllListeners();
+        a.cancel();
     }
 
     // ------------------------------------------------------------ wallpaper colour
@@ -1077,6 +1217,11 @@ public class OverlayService extends AccessibilityService {
 
     /** Puts a plugin in front of the others (bubble tap, or an incoming call). */
     public void promote(BasePlugin plugin) {
+        if (!queued.contains(plugin.getID())) {
+            // Stale bubble (that activity already ended).
+            refreshBubble();
+            return;
+        }
         queued.remove(plugin.getID());
         queued.add(0, plugin.getID());
         bindPlugin();
