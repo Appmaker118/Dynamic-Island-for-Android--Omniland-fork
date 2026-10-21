@@ -1,78 +1,80 @@
 package com.theglitchh.NothingLand.views;
 
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.ColorFilter;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 /**
- * Nothing-style slider track: a row of dots. Dots up to the current value are
- * solid, the rest are faint, and the current value is one larger red dot.
- * Used as a SeekBar progress drawable; the SeekBar sets the value via setLevel().
+ * Custom Drawable to render the slider track.
+ * [REWRITTEN] Converted from Nothing OS dot-matrix style to a 1:1 pure iOS dynamic fluid capsule track.
  */
 public class DotSliderDrawable extends Drawable {
-    public static final int NOTHING_RED = 0xFFD71921;
 
-    private final Paint on = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint off = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint accent = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final float radius;
-    private final float gap;
+    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF trackRect = new RectF();
+    private final RectF progressRect = new RectF();
+    
+    private int maxProgress = 100;
+    private int currentProgress = 0;
 
-    public DotSliderDrawable(int color, int accentColor, float density) {
-        on.setColor(color);
-        off.setColor(color);
-        off.setAlpha(60);
-        accent.setColor(accentColor);
-        radius = 2.5f * density;
-        gap = 4f * density;
+    public DotSliderDrawable() {
+        paint.setStyle(Paint.Style.FILL);
     }
 
-    @Override
-    protected boolean onLevelChange(int level) {
+    public void setMax(int max) {
+        this.maxProgress = Math.max(1, max);
         invalidateSelf();
-        return true;
+    }
+
+    public void setProgress(int progress) {
+        this.currentProgress = Math.max(0, Math.min(maxProgress, progress));
+        invalidateSelf();
     }
 
     @Override
-    public void draw(Canvas canvas) {
-        Rect b = getBounds();
-        if (b.width() <= 0) return;
-        float step = radius * 2 + gap;
-        int count = Math.max(2, (int) ((b.width() + gap) / step));
-        float total = count * step - gap;
-        float x0 = b.left + (b.width() - total) / 2f + radius;
-        float cy = b.exactCenterY();
-        int active = Math.round(getLevel() / 10000f * (count - 1));
-        for (int i = 0; i < count; i++) {
-            float cx = x0 + i * step;
-            if (i == active) {
-                canvas.drawCircle(cx, cy, radius * 1.7f, accent);
-            } else {
-                canvas.drawCircle(cx, cy, radius, i < active ? on : off);
-            }
+    public void draw(@NonNull Canvas canvas) {
+        Rect bounds = getBounds();
+        if (bounds.isEmpty()) return;
+
+        // Calculate layout geometry
+        float width = bounds.width();
+        float height = bounds.height();
+        
+        // iOS design uses a distinct corner radius relative to the component height to build perfect squircles
+        float cornerRadius = height / 2f; 
+
+        // 1. Draw the Background Track (iOS System Dark Grey)
+        trackRect.set(bounds.left, bounds.top, bounds.right, bounds.bottom);
+        paint.setColor(Color.parseColor("#2C2C2E"));
+        canvas.drawRoundRect(trackRect, cornerRadius, cornerRadius, paint);
+
+        // 2. Draw the Active Progress Layer (iOS System Pure White)
+        if (currentProgress > 0) {
+            float progressPercentage = (float) currentProgress / maxProgress;
+            float progressWidth = width * progressPercentage;
+
+            progressRect.set(bounds.left, bounds.top, bounds.left + progressWidth, bounds.bottom);
+            paint.setColor(Color.WHITE);
+            canvas.drawRoundRect(progressRect, cornerRadius, cornerRadius, paint);
         }
     }
 
     @Override
-    public int getIntrinsicHeight() {
-        return (int) Math.ceil(radius * 4);
-    }
-
-    @Override
     public void setAlpha(int alpha) {
-        on.setAlpha(alpha);
-        accent.setAlpha(alpha);
-        off.setAlpha(Math.min(alpha, 60));
+        paint.setAlpha(alpha);
         invalidateSelf();
     }
 
     @Override
-    public void setColorFilter(ColorFilter colorFilter) {
-        on.setColorFilter(colorFilter);
-        off.setColorFilter(colorFilter);
+    public void setColorFilter(@Nullable ColorFilter colorFilter) {
+        paint.setColorFilter(colorFilter);
         invalidateSelf();
     }
 
