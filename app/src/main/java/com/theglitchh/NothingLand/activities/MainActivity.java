@@ -36,21 +36,22 @@ import androidx.core.app.NotificationCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.color.MaterialColors;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.theglitchh.NothingLand.BuildConfig;
 import com.theglitchh.NothingLand.R;
 import com.theglitchh.NothingLand.plugins.ExportedPlugins;
 import com.theglitchh.NothingLand.services.OverlayService;
-import com.theglitchh.NothingLand.utils.adapters.RecylerViewSettingsAdapter;
-import com.theglitchh.NothingLand.utils.SettingStruct;
 import com.theglitchh.NothingLand.utils.DemoNotifications;
-import com.google.android.material.card.MaterialCardView;
-import com.google.android.material.color.MaterialColors;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.theglitchh.NothingLand.utils.SettingStruct;
+import com.theglitchh.NothingLand.utils.adapters.RecylerViewSettingsAdapter;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 
 public class MainActivity extends AppCompatActivity implements SharedPreferences.OnSharedPreferenceChangeListener {
+    private static final String NOTIFICATION_CHANNEL_ID = "omniland_notifications";
     private SharedPreferences sharedPreferences;
     private final ArrayList<SettingStruct> settings = new ArrayList<>();
 
@@ -72,8 +73,8 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         // Only on a fresh start: not again when the screen is redrawn (e.g. after the
         // Material You toggle), which re-opened the welcome screen and permission prompts.
         boolean freshStart = savedInstanceState == null;
-        if (freshStart && ((Settings.Secure.getString(this.getContentResolver(), "enabled_notification_listeners") != null && !Settings.Secure.getString(this.getContentResolver(), "enabled_notification_listeners").contains(getApplicationContext().getPackageName())
-        ) || ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)) {
+        if (freshStart && ((Settings.Secure.getString(this.getContentResolver(), "enabled_notification_listeners") != null && !Settings.Secure.getString(this.getContentResolver(), "enabled_notification_listeners").isEmpty())
+                || ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)) {
             startActivity(new Intent(this, PermissionActivity.class));
         }
         // Ask once for the runtime permissions the island uses: notifications (Android 13+)
@@ -226,7 +227,7 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
                              public void onCheckChanged(boolean checked, Context ctx) {
                                  sharedPreferences.edit().putBoolean(x.getID() + "_enabled", checked).apply();
                              }
-                         }
+                          }
             );
             if (x.getSettings() != null) {
                 settings.addAll(x.getSettings());
@@ -452,12 +453,25 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         }
     }
 
+    private void sendCrashNotification() {
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    NOTIFICATION_CHANNEL_ID,
+                    "OmniLand",
+                    NotificationManager.IMPORTANCE_DEFAULT
+            );
+            channel.setDescription("OmniLand notifications");
+            manager.createNotificationChannel(channel);
+        }
+
         NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID);
         Notification notification = notificationBuilder.setOngoing(false)
                 .setContentTitle("OmniLand Crashed")
                 .setContentText("Crash Log copied to clipboard")
                 .setSmallIcon(R.drawable.launcher_foreground)
-                .setPriority(NotificationManager.IMPORTANCE_MAX)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(Notification.CATEGORY_ERROR)
                 .build();
         manager.notify(100, notification);
