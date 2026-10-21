@@ -8,12 +8,14 @@ import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
+import android.os.Handler;
+import android.os.Looper;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 /**
  * Custom Drawable to render the slider track.
- * [REWRITTEN] Converted from Nothing OS dot-matrix style to a 1:1 pure iOS dynamic fluid capsule track.
+ * [UPDATED] Infused with isolated spring-damper physics to replicate pure iOS fluid motion.
  */
 public class DotSliderDrawable extends Drawable {
 
@@ -22,7 +24,39 @@ public class DotSliderDrawable extends Drawable {
     private final RectF progressRect = new RectF();
     
     private int maxProgress = 100;
-    private int currentProgress = 0;
+    private float currentProgress = 0f;  // The actual progress calculated by system
+    private float visualProgress = 0f;   // The smooth "fluid" progress actively drawn on screen
+
+    // Physics parameters for the iOS fluid feel
+    private static final float SPRING_STIFFNESS = 0.24f; // Controls how fast it snaps to your finger
+    private static final float DAMPING_RATIO = 0.70f;    // Lower values = more bouncy, Higher = smoother
+    private float velocity = 0f;
+
+    private final Handler animationHandler = new Handler(Looper.getMainLooper());
+    private boolean isAnimating = false;
+
+    private final Runnable animationRunnable = new Runnable() {
+        @Override
+        public void run() {
+            // Hooke's Law Spring Equation: Force = Stiffness * Displacement
+            float force = SPRING_STIFFNESS * (currentProgress - visualProgress);
+            
+            // Apply damping (friction) to control the settle stabilization
+            velocity = (velocity + force) * DAMPING_RATIO;
+            visualProgress += velocity;
+
+            // If the spring settles perfectly close to the target, stop the loop to save CPU
+            if (Math.abs(currentProgress - visualProgress) < 0.01f && Math.abs(velocity) < 0.01f) {
+                visualProgress = currentProgress;
+                isAnimating = false;
+                invalidateSelf();
+            } else {
+                invalidateSelf();
+                // 60 Frames Per Second rendering loop updates
+                animationHandler.postDelayed(this, 16); 
+            }
+        }
+    };
 
     public DotSliderDrawable() {
         paint.setStyle(Paint.Style.FILL);
@@ -35,7 +69,12 @@ public class DotSliderDrawable extends Drawable {
 
     public void setProgress(int progress) {
         this.currentProgress = Math.max(0, Math.min(maxProgress, progress));
-        invalidateSelf();
+        
+        // Safely trigger the physics engine loop if it isn't running already
+        if (!isAnimating) {
+            isAnimating = true;
+            animationHandler.post(animationRunnable);
+        }
     }
 
     @Override
@@ -43,21 +82,18 @@ public class DotSliderDrawable extends Drawable {
         Rect bounds = getBounds();
         if (bounds.isEmpty()) return;
 
-        // Calculate layout geometry
         float width = bounds.width();
         float height = bounds.height();
-        
-        // iOS design uses a distinct corner radius relative to the component height to build perfect squircles
         float cornerRadius = height / 2f; 
 
-        // 1. Draw the Background Track (iOS System Dark Grey)
+        // 1. Draw Background Track (iOS System Dark Grey)
         trackRect.set(bounds.left, bounds.top, bounds.right, bounds.bottom);
         paint.setColor(Color.parseColor("#2C2C2E"));
         canvas.drawRoundRect(trackRect, cornerRadius, cornerRadius, paint);
 
-        // 2. Draw the Active Progress Layer (iOS System Pure White)
-        if (currentProgress > 0) {
-            float progressPercentage = (float) currentProgress / maxProgress;
+        // 2. Draw Active Progress Layer (iOS System Pure White) using our fluid visual value
+        if (visualProgress > 0) {
+            float progressPercentage = visualProgress / maxProgress;
             float progressWidth = width * progressPercentage;
 
             progressRect.set(bounds.left, bounds.top, bounds.left + progressWidth, bounds.bottom);
