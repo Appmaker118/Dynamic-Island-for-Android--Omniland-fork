@@ -1,26 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+<layer-list xmlns:android="http://android.com">
+    
+    <!-- Background Track (Unfilled Portion) -->
     <item android:id="@android:id/background">
-        <shape>
-            <corners android:radius="20dp" />
-
-            <solid android:color="@color/not_quite_white" />
-
+        <shape android:shape="rectangle">
+            <!-- Semi-transparent dark track background -->
+            <solid android:color="#2C2C2E" />
+            <corners android:radius="30dp" />
         </shape>
     </item>
-    <item android:id="@android:id/secondaryProgress">
-        <scale android:scaleWidth="100%"
-            android:drawable="@color/not_quite_white" />
-    </item>
+
+    <!-- Progress Indicator (Filled Portion) -->
     <item android:id="@android:id/progress">
-        <scale android:scaleWidth="100%"
-            >
-            <shape>
-                <corners android:radius="20dp" />
-
-                <solid android:color="@color/white" />
-
+        <clip>
+            <shape android:shape="rectangle">
+                <!-- Pure high-contrast iOS system white fill -->
+                <solid android:color="#FFFFFF" />
+                <corners android:radius="30dp" />
             </shape>
-        </scale>
+        </clip>
     </item>
+    
 </layer-list>
