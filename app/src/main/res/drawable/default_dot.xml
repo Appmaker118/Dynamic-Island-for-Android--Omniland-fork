@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item>
-        <shape
-            android:innerRadius="0dp"
-            android:shape="ring"
-            android:thickness="4dp"
-            android:useLevel="false">
-            <solid android:color="@color/not_quite_white"/>
-        </shape>
-    </item>
-</layer-list>
+<shape xmlns:android="http://android.com"
+    android:shape="rectangle">
+    <!-- iOS control system dark background fill -->
+    <solid android:color="#2C2C2E" />
+    
+    <!-- Large corner radius to turn the rectangle corners into squircle capsules -->
+    <corners android:radius="14dp" />
+    
+    <!-- Structural sizing to change dots into wider pill panels -->
+    <size 
+        android:width="28dp" 
+        android:height="40dp" />
+</shape>
