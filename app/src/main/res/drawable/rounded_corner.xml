@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <corners android:radius="30dp"/>
-    <padding android:left="0dp" android:top="0dp" android:right="0dp" android:bottom="0dp" />
+<shape xmlns:android="http://android.com"
+    android:shape="rectangle">
+    <!-- Smooth iOS system dark surface -->
+    <solid android:color="#1A1A1A" />
+    <!-- High corner radius for the distinct squircle/pill appearance -->
+    <corners android:radius="28dp" />
 </shape>
