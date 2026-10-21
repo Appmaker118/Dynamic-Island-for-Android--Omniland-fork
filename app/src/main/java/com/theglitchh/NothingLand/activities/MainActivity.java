@@ -40,7 +40,6 @@ import com.theglitchh.NothingLand.BuildConfig;
 import com.theglitchh.NothingLand.R;
 import com.theglitchh.NothingLand.plugins.ExportedPlugins;
 import com.theglitchh.NothingLand.services.OverlayService;
-import com.theglitchh.NothingLand.services.UpdaterService;
 import com.theglitchh.NothingLand.utils.adapters.RecylerViewSettingsAdapter;
 import com.theglitchh.NothingLand.utils.SettingStruct;
 import com.theglitchh.NothingLand.utils.DemoNotifications;
@@ -240,10 +239,6 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         recyclerView.setAdapter(adapter);
         recyclerView.addItemDecoration(new ItemDecoration());
         recyclerView.invalidateItemDecorations();
-        if (sharedPreferences.getBoolean("update_enabled", true) && BuildConfig.AUTO_UPDATE)
-            startService(new Intent(this, UpdaterService.class));
-        if (BuildConfig.AUTO_UPDATE)
-            com.theglitchh.NothingLand.utils.Broadcasts.register(this, broadcastReceiver, new IntentFilter(getPackageName() + ".UPDATE_AVAIL"));
 
     }
 
