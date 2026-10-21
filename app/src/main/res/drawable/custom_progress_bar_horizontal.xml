@@ -1,22 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://android.com">
     
-    <!-- Background Track (Unfilled Portion) -->
+    <!-- 1. The Background Track (iOS Unfilled Grey Line) -->
     <item android:id="@android:id/background">
         <shape android:shape="rectangle">
-            <!-- Semi-transparent dark track background -->
+            <!-- iOS System Dark Grey Track -->
             <solid android:color="#2C2C2E" />
-            <corners android:radius="30dp" />
+            <corners android:radius="12dp" />
         </shape>
     </item>
 
-    <!-- Progress Indicator (Filled Portion) -->
+    <!-- 2. The Active Progress Fill (iOS Filled White Line) -->
     <item android:id="@android:id/progress">
         <clip>
             <shape android:shape="rectangle">
-                <!-- Pure high-contrast iOS system white fill -->
+                <!-- Pure iOS System White Progress -->
                 <solid android:color="#FFFFFF" />
-                <corners android:radius="30dp" />
+                <corners android:radius="12dp" />
             </shape>
         </clip>
     </item>
