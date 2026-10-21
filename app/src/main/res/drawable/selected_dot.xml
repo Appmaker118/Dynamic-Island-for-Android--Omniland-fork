@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item>
-        <shape
-            android:innerRadius="0dp"
-            android:shape="ring"
-            android:thickness="4dp"
-            android:useLevel="false">
-            <solid android:color="@android:color/darker_gray"/>
-        </shape>
-    </item>
-</layer-list>
+<shape xmlns:android="http://android.com"
+    android:shape="rectangle">
+    <!-- Pure high-contrast system white progress layer -->
+    <solid android:color="#FFFFFF" />
+    
+    <!-- Matching corner radius profile for seamless visual tracking -->
+    <corners android:radius="14dp" />
+    
+    <!-- Matching panel thickness sizing layout parameters -->
+    <size 
+        android:width="28dp" 
+        android:height="40dp" />
+</shape>
